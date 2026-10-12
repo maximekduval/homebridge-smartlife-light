@@ -4,6 +4,7 @@
  * The Homebridge config is optional: `{ "platform": "SmartLifeLight" }` is enough once the setup ran. A `devices` list
  * lets the user rename a light, pin its IP address, or declare a light by hand (id + local key) without any cloud.
  */
+import { ExtraOverride, ExtraSpec, findPreset, resolveExtras } from './extras';
 import { StoredDevice } from './store';
 import { DpInfo } from './tuya/light';
 import { PROTOCOL_VERSIONS, ProtocolVersion } from './tuya/protocol';
@@ -20,6 +21,8 @@ export interface DeviceOverride {
     /** Warmest and coolest white of the lamp, in kelvin. */
     minKelvin?: number;
     maxKelvin?: number;
+    /** Extra controls (switches, sliders) on top of the light: renames/hides preset ones, or adds new ones. */
+    extras?: ExtraOverride[];
     exclude?: boolean;
 }
 
@@ -33,8 +36,12 @@ export interface ResolvedLight {
     /** The user fixed the version: never try another one. */
     lockVersion: boolean;
     category?: string;
+    productId?: string;
     productName?: string;
     dps?: DpInfo[];
+    /** False when the main Brightness is the brightness of the colour (see `Preset`). */
+    whiteBrightness: boolean;
+    extras: ExtraSpec[];
     minKelvin: number;
     maxKelvin: number;
 }
@@ -96,6 +103,11 @@ export function resolveLights(stored: StoredDevice[], overrides: DeviceOverride[
             problems.push(`"version" of "${override?.name ?? id}" must be one of ${PROTOCOL_VERSIONS.join(', ')}; `
                 + 'it will be detected instead.');
         }
+        const preset = findPreset(base?.productId);
+        const resolvedExtras = resolveExtras(preset, override?.extras, base?.dps);
+        for (const problem of resolvedExtras.problems) {
+            problems.push(`${override?.name ?? base?.name ?? id}: ${problem}`);
+        }
         lights.push({
             id,
             name: override?.name ?? base?.name ?? `Light ${id.slice(-4)}`,
@@ -105,8 +117,11 @@ export function resolveLights(stored: StoredDevice[], overrides: DeviceOverride[
             version: configuredVersion ?? base?.version,
             lockVersion: Boolean(configuredVersion),
             category: base?.category,
+            productId: base?.productId,
             productName: base?.productName,
             dps: base?.dps,
+            whiteBrightness: preset?.whiteBrightness ?? true,
+            extras: resolvedExtras.extras,
             minKelvin: override?.minKelvin ?? 2700,
             maxKelvin: override?.maxKelvin ?? 6500,
         });

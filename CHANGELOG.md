@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Extra controls: switches, lights with an intensity and fans (speed) exposed as additional tiles of a lamp, for features that are not plain light. Configurable per light with `extras`.
+- Star projectors (Smart Star Projector, Nebula Glow...) are recognised automatically: *Stars* (on/off + intensity), *Nebula* (on/off) and *Rotation* (speed) tiles, and the main tile controls the colour of the nebula.
+- `smartlife-light watch` takes labels: type what you just did in the app and press Enter, to tell which data point does what.
+- Simpler settings form in the Homebridge UI (no empty light entry, no misplaced "Advanced" block).
+
 ## 0.1.0
 
 First release.

@@ -64,7 +64,7 @@ ${bold('smartlife-light')}: Smart Life lights in Apple Home
   ${bold('scan')}               List the Tuya devices announcing themselves on your network
   ${bold('list')}               Show the lights saved by the setup
   ${bold('status')} <light>     Connect to a light, print its data points and how they are understood
-  ${bold('watch')} <light>      Same, then print every change live (toggle things in the Smart Life app)
+  ${bold('watch')} <light>      Same, then print every change live (toggle things in the Smart Life app, type a label + Enter after each)
   ${bold('set')} <light> <dp>=<value> ...   Write data points, for example: set Desk 20=true 22=500
 
   <light> is the name or the id of a saved light.
@@ -337,7 +337,16 @@ async function status(options: Options, watch: boolean) {
         device.stop();
         return;
     }
-    console.log(`\n${bold('Watching.')} Change something in the Smart Life app or with the wall switch. Ctrl-C to stop.\n`);
+    console.log(`\n${bold('Watching.')} Change something in the Smart Life app or with the wall switch. Ctrl-C to stop.`);
+    console.log(dim('Tip: right after each action, type what you did and press Enter (e.g. "stars off"): it is written in the log\n'
+        + 'next to the data points that moved, which tells what each data point does.\n'));
+    // each typed line becomes a marker in the log
+    readline.createInterface({ input: process.stdin }).on('line', (line) => {
+        const label = line.trim();
+        if (label) {
+            console.log(`${dim(new Date().toLocaleTimeString())}  ${bold(`▶ ${label}`)}`);
+        }
+    });
     device.on('dps', (changed) => {
         const time = new Date().toLocaleTimeString();
         console.log(`${dim(time)}  ${Object.entries(changed).map(([k, v]) => `${bold(k)} = ${JSON.stringify(v)}`).join('   ')}`);

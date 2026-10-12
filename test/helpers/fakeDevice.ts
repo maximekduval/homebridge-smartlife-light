@@ -20,6 +20,8 @@ export class FakeTuyaDevice {
     pushOnControl = true;
     /** Never answer anything (frozen device). */
     mute = false;
+    /** Lets a test emulate the firmware's side effects: receives what was asked and may return extra changes. */
+    quirks?: (requested: Dps, current: Dps) => Dps;
 
     private readonly key: Buffer;
 
@@ -108,12 +110,13 @@ export class FakeTuyaDevice {
                     case Cmd.CONTROL_NEW: {
                         const requested = extractDps(frame.payload) ?? {};
                         this.controls.push(requested);
-                        this.dps = { ...this.dps, ...requested };
+                        const side = this.quirks?.(requested, this.dps) ?? {};
+                        this.dps = { ...this.dps, ...requested, ...side };
                         if (this.ack) {
                             send(frame.cmd, Buffer.alloc(0), frame.seq);
                         }
                         if (this.pushOnControl) {
-                            send(Cmd.STATUS, Buffer.from(JSON.stringify({ dps: requested, t: 1 })));
+                            send(Cmd.STATUS, Buffer.from(JSON.stringify({ dps: { ...requested, ...side }, t: 1 })));
                         }
                         break;
                     }

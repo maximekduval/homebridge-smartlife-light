@@ -11,6 +11,7 @@ Adds Wi-Fi lights controlled by the **Smart Life** (or Tuya Smart) app to Apple 
 - **One-minute setup**: enter your Smart Life user code, scan a QR code, done. No developer account, no keys to copy by hand.
 - **Local control**: once set up, the light is driven over your own network (instant, works without internet). The Tuya cloud is only used during the setup.
 - **Everything the light can do**: on/off, brightness, white temperature, colour. What your light does not have is not shown.
+- **Extra controls** for lamps that do more than light: a star projector gets its stars, nebula and rotation speed as separate tiles (see below).
 - **Finds your lights by itself**, even when the router gives them a new IP address.
 
 ## Install
@@ -70,6 +71,49 @@ Everything below is optional. Each entry of `devices` is matched to a light by i
 | `minKelvin`  | Integer | 2700      | warmest white of the lamp, adjusts the HomeKit colour temperature slider               |
 | `maxKelvin`  | Integer | 6500      | coolest white of the lamp                                                              |
 | `exclude`    | Boolean | false     | hide this light from HomeKit                                                           |
+
+## Star projectors and other lamps with extra controls
+
+Some lamps do more than light: a star projector has a nebula light, stars with their own intensity, and a rotation. Each of these is a Tuya *data point*, and the plugin can expose it as an extra tile on the same accessory in the Home app:
+
+| Type     | HomeKit tile                                | Use it for                                |
+|----------|---------------------------------------------|-------------------------------------------|
+| `switch` | a switch                                    | on/off features (nebula, laser, night mode) |
+| `light`  | a light with on/off and an intensity slider | stars                                     |
+| `fan`    | a fan with a speed                          | rotation                                  |
+
+**Known lamps need nothing.** The **Smart Star Projector** (Tuya product `hi3ejekqmmgajyxz`, sold under several names such as Nebula Glow) gets *Stars*, *Nebula* and *Rotation* automatically, and its main tile controls the colour of the nebula. Turning one of these on also powers the lamp on. Switching the lamp off switches stars and nebula off, and switching it on brings both back: that is the lamp's own behaviour.
+
+**For any other lamp**, find what its data points do with `smartlife-light watch <light>`: type a label and press Enter after each action you do in the Smart Life app, and the log shows which data point moved. Then declare them:
+
+```json
+{
+    "platform": "SmartLifeLight",
+    "devices": [
+        {
+            "id": "bf0123456789abcdef01xy",
+            "extras": [
+                { "dp": 104, "type": "switch", "name": "Night mode" },
+                { "dp": 105, "type": "fan", "name": "Speed", "min": 0, "max": 100 },
+                { "dp": 102, "name": "Étoiles" },
+                { "dp": 103, "exclude": true }
+            ]
+        }
+    ]
+}
+```
+
+An entry with the data point number of a known extra only changes what you write: here the stars are renamed and the nebula switch is hidden. Parameters of an extra:
+
+| Parameter      | Type    | Default        | Note                                                                         |
+|----------------|---------|----------------|------------------------------------------------------------------------------|
+| `dp`           | Integer |                | mandatory, the data point number                                             |
+| `type`         | String  |                | `switch`, `light` or `fan` (mandatory for a new extra)                       |
+| `name`         | String  | by type        | name in HomeKit                                                              |
+| `brightnessDp` | Integer |                | `light` only: the data point holding the intensity                           |
+| `min`, `max`   | Integer | from the cloud, else 0 and 1000 | range of the intensity or speed; for a `fan`, `min` means stopped |
+| `powerOn`      | Boolean | false          | switching it on first powers the lamp on                                     |
+| `exclude`      | Boolean | false          | hide it                                                                      |
 
 ## Troubleshooting
 

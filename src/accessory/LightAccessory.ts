@@ -3,8 +3,11 @@ import { Characteristic, CharacteristicValue, PlatformAccessory, Service } from 
 import { Platform } from '../platform';
 import { ResolvedLight } from '../config';
 import { DeviceLog, TuyaDevice } from '../tuya/device';
+import { ExtraSpec } from '../extras';
 import { Dps } from '../tuya/protocol';
-import { LightPatch, LightProfile, LightState, buildDps, buildProfile, miredBounds, readState } from '../tuya/light';
+import {
+    LightPatch, LightProfile, LightState, brightnessToHomeKit, brightnessToTuya, buildDps, buildProfile, miredBounds, readState,
+} from '../tuya/light';
 
 /** HomeKit sends On, Brightness, Hue and Saturation as separate writes: wait a moment and send one command. */
 const BATCH_MS = 60;
@@ -13,6 +16,8 @@ const LOCATE_RETRY_MS = 60_000;
 
 interface Batch {
     patch: LightPatch;
+    /** Data points to send as they are (extras), on top of what the light patch produces. */
+    raw: Dps;
     promise: Promise<void>;
     resolve: () => void;
     reject: (error: Error) => void;
@@ -29,6 +34,11 @@ export class LightAccessory {
     private batch?: Batch;
     private locateTimer?: NodeJS.Timeout;
     private stopped = false;
+    private lastDps: Dps = {};
+    /** One per extra: copies the light's data points into the HomeKit characteristics. */
+    private readonly refreshers: Array<(dps: Dps) => void> = [];
+    /** Last non-zero speed of each fan, to resume at it when switched on again. */
+    private readonly lastSpeed = new Map<number, number>();
 
     constructor(
         private readonly platform: Platform,
@@ -51,14 +61,22 @@ export class LightAccessory {
 
         this.service = accessory.getService(Service.Lightbulb) || accessory.addService(Service.Lightbulb, light.name);
         this.service.setCharacteristic(Characteristic.Name, light.name);
+        this.service.setPrimaryService(true);
 
         this.bind(Characteristic.On, 'on', (v) => this.enqueue({ on: Boolean(v) }), () => this.state.on);
 
         // With cloud information the capabilities are known right away; otherwise they are read from the light.
-        const profile = buildProfile(light.dps, {}, { min: light.minKelvin, max: light.maxKelvin });
+        const profile = this.detectProfile({});
         if (profile) {
             this.applyProfile(profile);
         }
+
+        this.setupExtras(light.extras);
+    }
+
+    private detectProfile(live: Dps): LightProfile | null {
+        return buildProfile(this.light.dps, live, { min: this.light.minKelvin, max: this.light.maxKelvin },
+            { whiteBrightness: this.light.whiteBrightness });
     }
 
     /** Starts talking to the light, after having found it on the network if needed. */
@@ -214,15 +232,19 @@ export class LightAccessory {
     }
 
     private onDps(all: Dps) {
+        this.lastDps = all;
         if (!this.profile) {
-            const profile = buildProfile(this.light.dps, all, { min: this.light.minKelvin, max: this.light.maxKelvin });
-            if (!profile) {
+            const profile = this.detectProfile(all);
+            if (profile) {
+                this.applyProfile(profile);
+            } else if (this.light.extras.length === 0) {
                 this.log.warn(`This device does not look like a light (data points: ${Object.keys(all).join(', ')}).`);
                 return;
             }
-            this.applyProfile(profile);
         }
-        this.state = readState(this.profile!, all, this.state);
+        if (this.profile) {
+            this.state = readState(this.profile, all, this.state);
+        }
         this.publish();
     }
 
@@ -230,20 +252,30 @@ export class LightAccessory {
         const { Characteristic } = this.platform.api.hap;
         const p = this.profile;
         const s = this.state;
+        for (const refresh of this.refreshers) {
+            refresh(this.lastDps);
+        }
+        if (!p) {
+            return;
+        }
         this.service.updateCharacteristic(Characteristic.On, s.on);
-        if (p?.brightness || p?.color) {
+        if (p.brightness || p.color) {
             this.service.updateCharacteristic(Characteristic.Brightness, s.brightness);
         }
-        if (p?.colorTemp && s.colorTemperature !== undefined) {
+        if (p.colorTemp && s.colorTemperature !== undefined) {
             this.service.updateCharacteristic(Characteristic.ColorTemperature, s.colorTemperature);
         }
-        if (p?.color && s.hue !== undefined && s.saturation !== undefined) {
+        if (p.color && s.hue !== undefined && s.saturation !== undefined) {
             this.service.updateCharacteristic(Characteristic.Hue, s.hue);
             this.service.updateCharacteristic(Characteristic.Saturation, s.saturation);
         }
     }
 
-    private enqueue(patch: LightPatch): Promise<void> {
+    /**
+     * Queues a change. `raw` are data points sent as they are; `defaults` only fill in data points nobody else
+     * asked for in the same batch (HomeKit may send "fan on" and "fan speed 40%" together: the speed must win).
+     */
+    private enqueue(patch: LightPatch, raw: Dps = {}, defaults: Dps = {}): Promise<void> {
         if (!this.batch) {
             let resolve!: () => void;
             let reject!: (error: Error) => void;
@@ -251,9 +283,15 @@ export class LightAccessory {
                 resolve = res;
                 reject = rej;
             });
-            this.batch = { patch: {}, promise, resolve, reject, timer: setTimeout(() => void this.flush(), BATCH_MS) };
+            this.batch = { patch: {}, raw: {}, promise, resolve, reject, timer: setTimeout(() => void this.flush(), BATCH_MS) };
         }
         Object.assign(this.batch.patch, patch);
+        Object.assign(this.batch.raw, raw);
+        for (const [dp, value] of Object.entries(defaults)) {
+            if (!(dp in this.batch.raw)) {
+                this.batch.raw[dp] = value;
+            }
+        }
         return this.batch.promise;
     }
 
@@ -264,10 +302,17 @@ export class LightAccessory {
             return;
         }
         try {
-            if (!this.profile || !this.device?.isReady) {
+            if (!this.device?.isReady) {
                 throw new Error('the light is not connected');
             }
-            const dps = buildDps(this.profile, batch.patch, this.state);
+            const dps: Dps = {};
+            if (Object.keys(batch.patch).length > 0) {
+                if (!this.profile) {
+                    throw new Error('the light has not reported its capabilities yet');
+                }
+                Object.assign(dps, buildDps(this.profile, batch.patch, this.state));
+            }
+            Object.assign(dps, batch.raw);
             if (Object.keys(dps).length > 0) {
                 this.log.debug(`-> ${JSON.stringify(dps)}`);
                 await this.device.set(dps);
@@ -281,5 +326,133 @@ export class LightAccessory {
                 this.publish();
             }
         }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Extra controls
+    // ---------------------------------------------------------------------------------------
+
+    private setupExtras(specs: ExtraSpec[]) {
+        const { Service } = this.platform.api.hap;
+        const wanted = new Set<string>();
+
+        for (const spec of specs) {
+            const subtype = `extra-${spec.dp}`;
+            wanted.add(subtype);
+            switch (spec.type) {
+                case 'switch': this.addSwitch(this.extraService(Service.Switch, spec, subtype), spec); break;
+                case 'light': this.addLight(this.extraService(Service.Lightbulb, spec, subtype), spec); break;
+                case 'fan': this.addFan(this.extraService(Service.Fanv2, spec, subtype), spec); break;
+            }
+        }
+
+        // tiles of extras that were removed from the configuration
+        for (const service of [...this.accessory.services]) {
+            if (service.subtype?.startsWith('extra-') && !wanted.has(service.subtype)) {
+                this.accessory.removeService(service);
+            }
+        }
+    }
+
+    /** Finds the service of an extra in the cached accessory, or creates it. */
+    private extraService(
+        type: typeof Service.Switch | typeof Service.Lightbulb | typeof Service.Fanv2, spec: ExtraSpec, subtype: string,
+    ): Service {
+        const { Characteristic } = this.platform.api.hap;
+        // the type of an extra may have changed in the configuration: drop what was there under another type
+        for (const old of [...this.accessory.services]) {
+            if (old.subtype === subtype && old.UUID !== type.UUID) {
+                this.accessory.removeService(old);
+            }
+        }
+        let service = this.accessory.getServiceById(type, subtype);
+        if (!service) {
+            service = this.accessory.addService(type, spec.name, subtype);
+            // the Home app lets the user rename a tile: only ever set the configured name on creation
+            service.addOptionalCharacteristic(Characteristic.ConfiguredName);
+            service.setCharacteristic(Characteristic.ConfiguredName, spec.name);
+        }
+        service.setCharacteristic(Characteristic.Name, spec.name);
+        return service;
+    }
+
+    private readDp<T>(dp: number, convert: (raw: unknown) => T): T {
+        if (!this.device?.isReady) {
+            throw this.commError();
+        }
+        return convert(this.device.dps[dp]);
+    }
+
+    /** Sends a change of an extra. Turning one on also powers the lamp when the light needs it. */
+    private writeExtra(spec: ExtraSpec, raw: Dps, turningOn = false, defaults: Dps = {}): Promise<void> {
+        const power: Dps = {};
+        if (spec.powerOn && turningOn && this.profile && !this.state.on) {
+            power[this.profile.on] = true;
+        }
+        return this.enqueue({}, { ...raw, ...power }, defaults);
+    }
+
+    private addSwitch(service: Service, spec: ExtraSpec) {
+        const { Characteristic } = this.platform.api.hap;
+        service.getCharacteristic(Characteristic.On)
+            .onGet(() => this.readDp(spec.dp, Boolean))
+            .onSet((v) => this.writeExtra(spec, { [spec.dp]: Boolean(v) }, Boolean(v)));
+        this.refreshers.push((dps) => service.updateCharacteristic(Characteristic.On, Boolean(dps[spec.dp])));
+    }
+
+    private addLight(service: Service, spec: ExtraSpec) {
+        const { Characteristic } = this.platform.api.hap;
+        this.addSwitch(service, spec);
+
+        const brightnessDp = spec.brightnessDp;
+        if (brightnessDp === undefined) {
+            return;
+        }
+        const toPercent = (raw: unknown) => brightnessToHomeKit(Number(raw), spec.min, spec.max);
+        this.setRange(service.getCharacteristic(Characteristic.Brightness), 1, 100, 100);
+        service.getCharacteristic(Characteristic.Brightness)
+            .onGet(() => this.readDp(brightnessDp, toPercent))
+            .onSet((v) => this.writeExtra(spec, { [brightnessDp]: brightnessToTuya(Number(v), spec.min, spec.max) }));
+        this.refreshers.push((dps) => {
+            if (typeof dps[brightnessDp] === 'number') {
+                service.updateCharacteristic(Characteristic.Brightness, toPercent(dps[brightnessDp]));
+            }
+        });
+    }
+
+    private addFan(service: Service, spec: ExtraSpec) {
+        const { Characteristic } = this.platform.api.hap;
+        const span = spec.max - spec.min;
+        const toPercent = (raw: unknown) => Math.min(100, Math.max(0, Math.round(((Number(raw) - spec.min) / span) * 100)));
+        const toRaw = (percent: number) => Math.round(spec.min + (Math.min(100, Math.max(0, percent)) / 100) * span);
+        const running = (raw: unknown) => Number(raw) > spec.min;
+
+        service.getCharacteristic(Characteristic.Active)
+            .onGet(() => this.readDp(spec.dp, (raw) => (running(raw) ? 1 : 0)))
+            .onSet((v) => {
+                const on = Number(v) === 1;
+                // switching on resumes the previous speed, unless a speed is set in the same batch
+                const resume = { [spec.dp]: this.lastSpeed.get(spec.dp) ?? spec.max };
+                return this.writeExtra(spec, on ? {} : { [spec.dp]: spec.min }, on, on ? resume : {});
+            });
+        service.getCharacteristic(Characteristic.RotationSpeed)
+            .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
+            .onGet(() => this.readDp(spec.dp, toPercent))
+            .onSet((v) => {
+                const raw = toRaw(Number(v));
+                return this.writeExtra(spec, { [spec.dp]: raw }, raw > spec.min);
+            });
+
+        this.refreshers.push((dps) => {
+            const raw = Number(dps[spec.dp]);
+            if (Number.isNaN(raw)) {
+                return;
+            }
+            if (raw > spec.min) {
+                this.lastSpeed.set(spec.dp, raw);
+            }
+            service.updateCharacteristic(Characteristic.Active, running(raw) ? 1 : 0);
+            service.updateCharacteristic(Characteristic.RotationSpeed, toPercent(raw));
+        });
     }
 }

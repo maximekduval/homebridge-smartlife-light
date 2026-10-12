@@ -2,7 +2,7 @@
   "pluginAlias": "SmartLifeLight",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Run `smartlife-light setup` once in a terminal to link your Smart Life account (see the plugin page). Nothing else is required: your lights are found automatically.",
+  "headerDisplay": "Nothing to fill in here to get started. Run `smartlife-light setup` once in the Terminal to link your Smart Life account: your lights are then found automatically. The list below is only for renaming a light, pinning its IP address or adding extra controls.",
   "schema": {
     "type": "object",
     "properties": {
@@ -14,7 +14,7 @@
       },
       "devices": {
         "title": "Lights (optional)",
-        "description": "Only needed to rename a light, to give it a fixed IP address, or to add a light by hand.",
+        "description": "Leave empty unless you need one of the options below.",
         "type": "array",
         "items": {
           "type": "object",
@@ -29,16 +29,16 @@
               "title": "Name in HomeKit",
               "type": "string"
             },
-            "key": {
-              "title": "Local key",
-              "type": "string",
-              "description": "Only for a light that is not saved by the setup: 16 characters."
-            },
             "ip": {
               "title": "IP address",
               "type": "string",
               "format": "ipv4",
               "description": "Leave empty: the light is found automatically, even if its address changes."
+            },
+            "key": {
+              "title": "Local key",
+              "type": "string",
+              "description": "Only to add a light that the setup did not save: 16 characters."
             },
             "version": {
               "title": "Protocol version",
@@ -66,39 +66,68 @@
               "maximum": 10000
             },
             "exclude": {
-              "title": "Hide from HomeKit",
+              "title": "Hide this light from HomeKit",
               "type": "boolean",
               "default": false
+            },
+            "extras": {
+              "title": "Extra controls",
+              "description": "Features of the lamp beyond light, such as a rotation speed or a star switch. Known lamps (star projectors) get theirs automatically: use this to rename or hide them, or to add your own. `smartlife-light watch <light>` shows which data point does what.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "dp": {
+                    "title": "Data point number",
+                    "type": "integer",
+                    "required": true,
+                    "minimum": 1
+                  },
+                  "name": {
+                    "title": "Name in HomeKit",
+                    "type": "string"
+                  },
+                  "type": {
+                    "title": "Type",
+                    "type": "string",
+                    "description": "Switch: on/off. Light: on/off with an intensity. Fan: a speed.",
+                    "oneOf": [
+                      { "title": "Keep the default", "enum": [""] },
+                      { "title": "Switch", "enum": ["switch"] },
+                      { "title": "Light (on/off + intensity)", "enum": ["light"] },
+                      { "title": "Fan (speed)", "enum": ["fan"] }
+                    ]
+                  },
+                  "brightnessDp": {
+                    "title": "Intensity data point",
+                    "type": "integer",
+                    "description": "Light only: the data point holding the intensity."
+                  },
+                  "min": {
+                    "title": "Lowest value",
+                    "type": "integer",
+                    "description": "Light intensity or fan speed range. Fan: the value that means stopped."
+                  },
+                  "max": {
+                    "title": "Highest value",
+                    "type": "integer"
+                  },
+                  "powerOn": {
+                    "title": "Also switch the lamp on",
+                    "type": "boolean",
+                    "description": "Switching this on first powers the lamp on, for lamps whose features only work while it is on."
+                  },
+                  "exclude": {
+                    "title": "Hide from HomeKit",
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
             }
           }
         }
       }
     }
-  },
-  "layout": [
-    "name",
-    {
-      "key": "devices",
-      "type": "array",
-      "buttonText": "Add a light",
-      "items": [
-        "devices[].id",
-        "devices[].name",
-        "devices[].ip",
-        {
-          "type": "fieldset",
-          "title": "Advanced",
-          "expandable": true,
-          "expanded": false,
-          "items": [
-            "devices[].key",
-            "devices[].version",
-            "devices[].minKelvin",
-            "devices[].maxKelvin",
-            "devices[].exclude"
-          ]
-        }
-      ]
-    }
-  ]
+  }
 }

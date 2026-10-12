@@ -118,7 +118,22 @@ function colorRanges(format: ColorFormat, code: string): { sMax: number; vMax: n
  * Builds the profile of a light from what the cloud told us (`infos`, may be empty) and what the light reports (`live`).
  * Returns null when the device does not look like a light at all.
  */
-export function buildProfile(infos: DpInfo[] | undefined, live: Dps, kelvin = DEFAULT_KELVIN): LightProfile | null {
+export interface ProfileOptions {
+    /** Set to false when the white brightness data point is something else (the intensity of the stars, say). */
+    whiteBrightness?: boolean;
+}
+
+export function buildProfile(
+    infos: DpInfo[] | undefined, live: Dps, kelvin = DEFAULT_KELVIN, options: ProfileOptions = {},
+): LightProfile | null {
+    const profile = detectProfile(infos, live, kelvin);
+    if (profile && options.whiteBrightness === false) {
+        delete profile.brightness;
+    }
+    return profile;
+}
+
+function detectProfile(infos: DpInfo[] | undefined, live: Dps, kelvin: { min: number; max: number }): LightProfile | null {
     const known = infos ?? [];
     const profile: Partial<LightProfile> = { minKelvin: kelvin.min, maxKelvin: kelvin.max };
 
@@ -309,7 +324,7 @@ export function readState(profile: LightProfile, dps: Dps, previous?: LightState
     }
 
     const white = profile.brightness ? get(dps, profile.brightness.dp) : undefined;
-    if (mode === 'colour' && colour) {
+    if (colour && (mode === 'colour' || !profile.brightness)) {
         state.brightness = clamp(Math.round(colour.v), 1, 100);
     } else if (typeof white === 'number' && profile.brightness) {
         state.brightness = brightnessToHomeKit(white, profile.brightness.min, profile.brightness.max);
@@ -358,17 +373,18 @@ export function buildDps(profile: LightProfile, patch: LightPatch, current: Ligh
     }
 
     if (patch.brightness !== undefined) {
-        if (current.mode === 'colour' && profile.color) {
+        const colourOnly = !profile.brightness; // no white channel: the brightness is that of the colour
+        if (profile.color && (current.mode === 'colour' || colourOnly)) {
             dps[profile.color.dp] = formatColor(profile.color, {
                 h: current.hue ?? 0,
-                s: current.saturation ?? 100,
+                s: current.saturation ?? (colourOnly ? 0 : 100),
                 v: patch.brightness,
             });
+            if (colourOnly && current.mode !== 'colour' && profile.mode !== undefined) {
+                dps[profile.mode] = 'colour';
+            }
         } else if (profile.brightness) {
             dps[profile.brightness.dp] = brightnessToTuya(patch.brightness, profile.brightness.min, profile.brightness.max);
-        } else if (profile.color) {
-            // colour-only lamp
-            dps[profile.color.dp] = formatColor(profile.color, { h: current.hue ?? 0, s: current.saturation ?? 0, v: patch.brightness });
         }
     }
     return dps;
