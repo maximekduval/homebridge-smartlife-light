@@ -59,7 +59,9 @@ export class LightAccessory {
             .setCharacteristic(Characteristic.Model, light.productName || light.category || 'Light')
             .setCharacteristic(Characteristic.SerialNumber, light.id);
 
-        this.service = accessory.getService(Service.Lightbulb) || accessory.addService(Service.Lightbulb, light.name);
+        // the main light is the one without a subtype: the extras can be lights too
+        this.service = accessory.services.find((s) => s.UUID === Service.Lightbulb.UUID && !s.subtype)
+            ?? accessory.addService(Service.Lightbulb, light.name);
         this.service.setCharacteristic(Characteristic.Name, light.name);
         this.service.setPrimaryService(true);
 
@@ -377,11 +379,29 @@ export class LightAccessory {
         return service;
     }
 
+    /**
+     * Whether an extra that needs the lamp to be powered can be doing anything. A lamp that is off is not rotating
+     * whatever speed it remembers, so the Home app must not show that speed; the data point itself is left alone, so
+     * that the rotation resumes where it was.
+     */
+    private powered(spec: ExtraSpec, dps: Dps): boolean {
+        return !spec.powerOn || !this.profile || Boolean(dps[this.profile.on]);
+    }
+
     private readDp<T>(dp: number, convert: (raw: unknown) => T): T {
         if (!this.device?.isReady) {
             throw this.commError();
         }
         return convert(this.device.dps[dp]);
+    }
+
+    /** Same as `readDp`, for an extra: the conversion also learns whether the lamp is powered. */
+    private readExtraState<T>(spec: ExtraSpec, convert: (raw: unknown, powered: boolean) => T): T {
+        if (!this.device?.isReady) {
+            throw this.commError();
+        }
+        const dps = this.device.dps;
+        return convert(dps[spec.dp], this.powered(spec, dps));
     }
 
     /** Sends a change of an extra. Turning one on also powers the lamp when the light needs it. */
@@ -396,18 +416,16 @@ export class LightAccessory {
     private addSwitch(service: Service, spec: ExtraSpec) {
         const { Characteristic } = this.platform.api.hap;
         service.getCharacteristic(Characteristic.On)
-            .onGet(() => this.readDp(spec.dp, Boolean))
+            .onGet(() => this.readExtraState(spec, (raw, powered) => powered && Boolean(raw)))
             .onSet((v) => this.writeExtra(spec, { [spec.dp]: Boolean(v) }, Boolean(v)));
-        this.refreshers.push((dps) => service.updateCharacteristic(Characteristic.On, Boolean(dps[spec.dp])));
+        this.refreshers.push((dps) => service.updateCharacteristic(Characteristic.On, this.powered(spec, dps) && Boolean(dps[spec.dp])));
     }
 
     private addLight(service: Service, spec: ExtraSpec) {
         const { Characteristic } = this.platform.api.hap;
         this.addSwitch(service, spec);
 
-        if (spec.hue !== undefined) {
-            this.fixColour(service, spec.hue, spec.saturation ?? 100);
-        }
+        this.dropColour(service);
 
         const brightnessDp = spec.brightnessDp;
         if (brightnessDp === undefined) {
@@ -465,16 +483,16 @@ export class LightAccessory {
     }
 
     /**
-     * Gives a light a fixed colour. The Home app tints a light's tile and slider with its hue and saturation, so this is
-     * how a light that is always green (the stars) gets a green slider. Read-only: the lamp has no colour to change.
+     * An extra light has no colour: the Home app shows a colour picker as soon as a light has a hue, and there is
+     * nothing for it to do. Version 0.3.0 added a fixed hue and saturation to the stars, and Homebridge keeps them in
+     * its cache, so they are removed here.
      */
-    private fixColour(service: Service, hue: number, saturation: number) {
-        const { Characteristic, Perms } = this.platform.api.hap;
-        for (const [characteristic, value] of [[Characteristic.Hue, hue], [Characteristic.Saturation, saturation]] as const) {
-            const c = service.getCharacteristic(characteristic);
-            c.updateValue(value);
-            c.setProps({ perms: [Perms.PAIRED_READ, Perms.NOTIFY] });
-            c.onGet(() => value);
+    private dropColour(service: Service) {
+        const { Characteristic } = this.platform.api.hap;
+        for (const characteristic of [Characteristic.Hue, Characteristic.Saturation]) {
+            if (service.testCharacteristic(characteristic)) {
+                service.removeCharacteristic(service.getCharacteristic(characteristic));
+            }
         }
     }
 
@@ -486,7 +504,7 @@ export class LightAccessory {
         const running = (raw: unknown) => Number(raw) > spec.min;
 
         service.getCharacteristic(Characteristic.Active)
-            .onGet(() => this.readDp(spec.dp, (raw) => (running(raw) ? 1 : 0)))
+            .onGet(() => this.readExtraState(spec, (raw, powered) => (powered && running(raw) ? 1 : 0)))
             .onSet((v) => {
                 const on = Number(v) === 1;
                 // switching on resumes the previous speed, unless a speed is set in the same batch
@@ -495,7 +513,7 @@ export class LightAccessory {
             });
         service.getCharacteristic(Characteristic.RotationSpeed)
             .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
-            .onGet(() => this.readDp(spec.dp, toPercent))
+            .onGet(() => this.readExtraState(spec, (raw, powered) => (powered ? toPercent(raw) : 0)))
             .onSet((v) => {
                 const raw = toRaw(Number(v));
                 return this.writeExtra(spec, { [spec.dp]: raw }, raw > spec.min);
@@ -509,8 +527,9 @@ export class LightAccessory {
             if (raw > spec.min) {
                 this.lastSpeed.set(spec.dp, raw);
             }
-            service.updateCharacteristic(Characteristic.Active, running(raw) ? 1 : 0);
-            service.updateCharacteristic(Characteristic.RotationSpeed, toPercent(raw));
+            const powered = this.powered(spec, dps);
+            service.updateCharacteristic(Characteristic.Active, powered && running(raw) ? 1 : 0);
+            service.updateCharacteristic(Characteristic.RotationSpeed, powered ? toPercent(raw) : 0);
         });
     }
 }

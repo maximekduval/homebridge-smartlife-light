@@ -113,24 +113,10 @@
                     "title": "Highest value",
                     "type": "integer"
                   },
-                  "hue": {
-                    "title": "Fixed colour: hue (0-360)",
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 360,
-                    "description": "Light only: tints the tile and the slider in the Home app, for a light that is always one colour (120 = green). It cannot be changed from HomeKit."
-                  },
-                  "saturation": {
-                    "title": "Fixed colour: saturation (0-100)",
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100,
-                    "default": 100
-                  },
                   "powerOn": {
                     "title": "Also switch the lamp on",
                     "type": "boolean",
-                    "description": "Switching this on first powers the lamp on, for lamps whose features only work while it is on."
+                    "description": "For lamps whose features only work while they are on: switching this on first powers the lamp on, and it is shown as off while the lamp is off."
                   },
                   "exclude": {
                     "title": "Hide from HomeKit",

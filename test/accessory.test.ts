@@ -31,6 +31,8 @@ afterEach(async () => {
 const quiet = { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined };
 
 interface SetupOptions {
+    /** Runs before the accessory under test is built: to put in place what a Homebridge cache would restore. */
+    prepare?: (accessory: hap.Accessory) => void;
     dps?: Record<string, unknown>;
     cloud?: DpInfo[];
     light?: Partial<ResolvedLight>;
@@ -45,6 +47,7 @@ async function setup(version: ProtocolVersion, withCloudInfo = true, options: Se
     // HAP reports out-of-range values and similar mistakes as warnings: a plugin must not trigger any
     const warnings: string[] = [];
     accessory.on('characteristic-warning' as any, (_type: unknown, message: string) => warnings.push(message));
+    options.prepare?.(accessory);
     const remembered: any[] = [];
     const platform: any = {
         api: { hap },
@@ -172,9 +175,9 @@ const PROJECTOR_DPS = {
     20: true, 21: 'colour', 22: 161, 24: '00ed03e8017e', 25: '0746460000dd03e8009600000000', 26: 0, 101: 1000, 102: true, 103: true,
 };
 
-async function projector(dps: Record<string, unknown> = PROJECTOR_DPS) {
+async function projector(dps: Record<string, unknown> = PROJECTOR_DPS, prepare?: SetupOptions['prepare']) {
     const { extras } = resolveExtras(findPreset('hi3ejekqmmgajyxz'), undefined, PROJECTOR_CLOUD);
-    const harness = await setup('3.3', true, { dps, cloud: PROJECTOR_CLOUD, light: { whiteBrightness: false, extras } });
+    const harness = await setup('3.3', true, { dps, cloud: PROJECTOR_CLOUD, prepare, light: { whiteBrightness: false, extras } });
     // what the real lamp does by itself
     harness.fake.quirks = (asked) => {
         const side: Record<string, unknown> = {};
@@ -283,13 +286,26 @@ describe('star projector', () => {
         expect(await act(stars, Characteristic.Brightness)).toBe(16); // 161 on a 10..1000 scale
     });
 
-    it('shows the stars in a fixed green that cannot be changed', async () => {
-        const { stars, act, connected, warnings } = await projector();
+    it('gives the stars no colour: the Home app would show a colour picker that does nothing', async () => {
+        const { stars, connected } = await projector();
         await connected();
-        expect(await act(stars, Characteristic.Hue)).toBe(120);
-        expect(await act(stars, Characteristic.Saturation)).toBe(100);
-        expect(stars.getCharacteristic(Characteristic.Hue).props.perms).not.toContain('pw');
-        expect(warnings).toEqual([]);
+        expect(stars.testCharacteristic(Characteristic.Hue)).toBe(false);
+        expect(stars.testCharacteristic(Characteristic.Saturation)).toBe(false);
+    });
+
+    it('removes the hue and saturation that version 0.3.0 left on the stars in the cache', async () => {
+        const { stars, connected, accessory } = await projector(PROJECTOR_DPS, (cache) => {
+            // what Homebridge restores: the main light first, then the stars as 0.3.0 had left them
+            cache.addService(Service.Lightbulb, 'Desk');
+            const cached = cache.addService(Service.Lightbulb, 'Stars', 'extra-102');
+            cached.getCharacteristic(Characteristic.Hue);
+            cached.getCharacteristic(Characteristic.Saturation);
+        });
+        await connected();
+        expect(stars.testCharacteristic(Characteristic.Hue)).toBe(false);
+        expect(stars.testCharacteristic(Characteristic.Saturation)).toBe(false);
+        expect(stars.testCharacteristic(Characteristic.Brightness)).toBe(true);
+        expect(accessory.services.filter((s) => s.UUID === Service.Lightbulb.UUID && !s.subtype)).toHaveLength(1);
     });
 
     it('turns the stars off and sets their intensity without touching anything else', async () => {
@@ -338,6 +354,32 @@ describe('star projector', () => {
         expect(fake.controls).toEqual([{ 101: 700 }]);
         await Promise.all([act(rotation, Characteristic.RotationSpeed, 20), act(rotation, Characteristic.Active, 1)]);
         expect(fake.controls[1]).toEqual({ 101: 200 });
+    });
+
+    it('shows the rotation as stopped while the lamp is off, and keeps its speed to resume at it', async () => {
+        const { fake, rotation, nebula, act, connected } = await projector();
+        await connected();
+        await act(rotation, Characteristic.Active, 0); // stop it, then...
+        fake.push({ 101: 700, 20: false, 102: false, 103: false }); // ...the lamp is switched off, remembering a speed of 70%
+        await new Promise((r) => setTimeout(r, 100));
+        expect(await act(rotation, Characteristic.Active)).toBe(0);
+        expect(await act(rotation, Characteristic.RotationSpeed)).toBe(0);
+        expect(await act(nebula, Characteristic.On)).toBe(false);
+        expect(fake.dps[101]).toBe(700); // nothing was written to the data point
+        fake.push({ 20: true });
+        await new Promise((r) => setTimeout(r, 100));
+        expect(await act(rotation, Characteristic.Active)).toBe(1);
+        expect(await act(rotation, Characteristic.RotationSpeed)).toBe(70);
+    });
+
+    it('shows the rotation as stopped when everything is switched off with one tap', async () => {
+        const { all, rotation, act, connected } = await projector();
+        await connected();
+        expect(await act(rotation, Characteristic.RotationSpeed)).toBe(100);
+        await act(all, Characteristic.On, false);
+        await new Promise((r) => setTimeout(r, 100));
+        expect(await act(rotation, Characteristic.Active)).toBe(0);
+        expect(await act(rotation, Characteristic.RotationSpeed)).toBe(0);
     });
 
     it('shows the rotation as stopped or running', async () => {

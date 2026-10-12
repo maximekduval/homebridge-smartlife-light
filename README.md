@@ -115,8 +115,7 @@ An entry with the data point number of a known extra only changes what you write
 | `name`         | String  | by type        | name in HomeKit                                                              |
 | `brightnessDp` | Integer |                | `light` only: the data point holding the intensity                           |
 | `min`, `max`   | Integer | from the cloud, else 0 and 1000 | range of the intensity or speed; for a `fan`, `min` means stopped |
-| `hue`, `saturation` | Integer | | `light` only: a fixed colour (0-360, 0-100) for the tile and slider in the Home app, for a light that is always one colour. The stars of a star projector are green by default |
-| `powerOn`      | Boolean | false          | switching it on first powers the lamp on                                     |
+| `powerOn`      | Boolean | false          | the feature needs the lamp to be powered: switching it on first powers the lamp on, and it is shown as off while the lamp is off |
 | `exclude`      | Boolean | false          | hide it                                                                      |
 
 ## Troubleshooting

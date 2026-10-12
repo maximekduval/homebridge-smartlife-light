@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- A feature that needs the lamp to be powered (`powerOn`) is shown as off while the lamp is off. The rotation of a star projector no longer shows its remembered speed when everything is switched off; the speed itself is kept, so the rotation resumes where it was.
+- Removed the fixed colour of 0.3.0: the Home app shows a colour picker as soon as a light has a hue, which did nothing for the stars. The stars tile is a plain slider again, and the hue and saturation that 0.3.0 had stored on it are removed.
+
 ## 0.3.0
 
 - Fixed colour for a `light` extra (`hue`, `saturation`): the Home app tints the tile and the slider with it. The stars of a star projector are always green, so their slider is now green.

@@ -1,7 +1,7 @@
 {
   "name": "homebridge-smartlife-light",
   "displayName": "Homebridge Smart Life Light",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "HomeKit support for Wi-Fi lights controlled by the Smart Life / Tuya Smart app, with local (LAN) control and a one-minute QR-code setup.",
   "author": "maximekduval <maximekduval@gmail.com>",
   "license": "Apache-2.0",
