@@ -1,0 +1,104 @@
+{
+  "pluginAlias": "SmartLifeLight",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Run `smartlife-light setup` once in a terminal to link your Smart Life account (see the plugin page). Nothing else is required: your lights are found automatically.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "required": true,
+        "default": "Smart Life Light"
+      },
+      "devices": {
+        "title": "Lights (optional)",
+        "description": "Only needed to rename a light, to give it a fixed IP address, or to add a light by hand.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true,
+              "description": "Shown by `smartlife-light list`."
+            },
+            "name": {
+              "title": "Name in HomeKit",
+              "type": "string"
+            },
+            "key": {
+              "title": "Local key",
+              "type": "string",
+              "description": "Only for a light that is not saved by the setup: 16 characters."
+            },
+            "ip": {
+              "title": "IP address",
+              "type": "string",
+              "format": "ipv4",
+              "description": "Leave empty: the light is found automatically, even if its address changes."
+            },
+            "version": {
+              "title": "Protocol version",
+              "type": "string",
+              "description": "Leave on automatic unless the light cannot connect.",
+              "oneOf": [
+                { "title": "Automatic", "enum": [""] },
+                { "title": "3.3", "enum": ["3.3"] },
+                { "title": "3.4", "enum": ["3.4"] },
+                { "title": "3.5", "enum": ["3.5"] }
+              ]
+            },
+            "minKelvin": {
+              "title": "Warmest white (K)",
+              "type": "integer",
+              "default": 2700,
+              "minimum": 1000,
+              "maximum": 6500
+            },
+            "maxKelvin": {
+              "title": "Coolest white (K)",
+              "type": "integer",
+              "default": 6500,
+              "minimum": 2000,
+              "maximum": 10000
+            },
+            "exclude": {
+              "title": "Hide from HomeKit",
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "layout": [
+    "name",
+    {
+      "key": "devices",
+      "type": "array",
+      "buttonText": "Add a light",
+      "items": [
+        "devices[].id",
+        "devices[].name",
+        "devices[].ip",
+        {
+          "type": "fieldset",
+          "title": "Advanced",
+          "expandable": true,
+          "expanded": false,
+          "items": [
+            "devices[].key",
+            "devices[].version",
+            "devices[].minKelvin",
+            "devices[].maxKelvin",
+            "devices[].exclude"
+          ]
+        }
+      ]
+    }
+  ]
+}

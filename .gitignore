@@ -1,0 +1,24 @@
+# Compiled code
+dist
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage
+
+# Dependencies
+node_modules/
+
+# Local-only files: Tuya local keys and session tokens must never be committed
+.env
+.env.*
+smartlife-light.json
+*.tgz
+
+# Python venv used to regenerate the protocol fixtures
+.venv/
+
+.DS_Store

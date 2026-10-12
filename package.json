@@ -1,0 +1,63 @@
+{
+  "name": "homebridge-smartlife-light",
+  "displayName": "Homebridge Smart Life Light",
+  "version": "0.1.0",
+  "description": "HomeKit support for Wi-Fi lights controlled by the Smart Life / Tuya Smart app, with local (LAN) control and a one-minute QR-code setup.",
+  "author": "maximekduval <maximekduval@gmail.com>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maximekduval/homebridge-smartlife-light.git"
+  },
+  "bugs": {
+    "url": "https://github.com/maximekduval/homebridge-smartlife-light/issues"
+  },
+  "homepage": "https://github.com/maximekduval/homebridge-smartlife-light#readme",
+  "engines": {
+    "node": ">=20.12.0",
+    "homebridge": "^1.8.0 || ^2.0.0"
+  },
+  "main": "dist/index.js",
+  "bin": {
+    "smartlife-light": "dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "config.schema.json"
+  ],
+  "scripts": {
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "watch": "npm run build && npm link && nodemon",
+    "clean": "rimraf ./dist",
+    "build": "rimraf ./dist && tsc",
+    "prepublishOnly": "npm run lint && npm run test && npm run build",
+    "postpublish": "npm run clean"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "smart-life",
+    "smartlife",
+    "tuya",
+    "light",
+    "lightbulb",
+    "homekit"
+  ],
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.14.0",
+    "@types/node": "^22.8.7",
+    "@types/qrcode-terminal": "^0.12.2",
+    "@typescript-eslint/eslint-plugin": "^8.13.0",
+    "@typescript-eslint/parser": "^8.13.0",
+    "eslint": "^9.14.0",
+    "homebridge": "^1.8.5",
+    "nodemon": "^3.1.7",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.9"
+  }
+}

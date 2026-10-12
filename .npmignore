@@ -1,0 +1,26 @@
+# Ignore source code and dev tooling
+src
+test
+scripts
+.github
+.vscode
+.venv
+tsconfig.json
+eslint.config.js
+vitest.config.ts
+nodemon.json
+RELEASING.md
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage
+
+# Dependencies
+node_modules/
+
+# Output of 'npm pack'
+*.tgz
