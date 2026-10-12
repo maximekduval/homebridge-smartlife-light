@@ -343,6 +343,7 @@ export class LightAccessory {
                 case 'switch': this.addSwitch(this.extraService(Service.Switch, spec, subtype), spec); break;
                 case 'light': this.addLight(this.extraService(Service.Lightbulb, spec, subtype), spec); break;
                 case 'fan': this.addFan(this.extraService(Service.Fanv2, spec, subtype), spec); break;
+                case 'all': this.addAll(this.extraService(Service.Switch, spec, subtype), spec); break;
             }
         }
 
@@ -404,6 +405,10 @@ export class LightAccessory {
         const { Characteristic } = this.platform.api.hap;
         this.addSwitch(service, spec);
 
+        if (spec.hue !== undefined) {
+            this.fixColour(service, spec.hue, spec.saturation ?? 100);
+        }
+
         const brightnessDp = spec.brightnessDp;
         if (brightnessDp === undefined) {
             return;
@@ -418,6 +423,59 @@ export class LightAccessory {
                 service.updateCharacteristic(Characteristic.Brightness, toPercent(dps[brightnessDp]));
             }
         });
+    }
+
+    /**
+     * Master switch. It shows "on" only when the lamp is powered and every other extra is on, so that one tap from
+     * any partial state switches everything on; and one tap from "all on" switches the lamp (and so everything) off.
+     */
+    private addAll(service: Service, spec: ExtraSpec) {
+        const { Characteristic } = this.platform.api.hap;
+        const members = () => this.light.extras.filter((e) => e !== spec && e.type !== 'all');
+        const isOn = (e: ExtraSpec, dps: Dps) => (e.type === 'fan' ? Number(dps[e.dp]) > e.min : Boolean(dps[e.dp]));
+        const allOn = (dps: Dps) => Boolean(dps[spec.dp]) && members().every((e) => isOn(e, dps));
+
+        service.getCharacteristic(Characteristic.On)
+            .onGet(() => {
+                if (!this.device?.isReady) {
+                    throw this.commError();
+                }
+                return allOn(this.device.dps);
+            })
+            .onSet((value) => {
+                if (!value) {
+                    return this.enqueue({}, { [spec.dp]: false });
+                }
+                const dps = this.device?.dps ?? {};
+                const raw: Dps = { [spec.dp]: true };
+                const defaults: Dps = {};
+                for (const member of members()) {
+                    if (isOn(member, dps)) {
+                        continue;
+                    }
+                    if (member.type === 'fan') {
+                        defaults[member.dp] = this.lastSpeed.get(member.dp) ?? member.max; // resume where it was
+                    } else {
+                        raw[member.dp] = true;
+                    }
+                }
+                return this.enqueue({}, raw, defaults);
+            });
+        this.refreshers.push((dps) => service.updateCharacteristic(Characteristic.On, allOn(dps)));
+    }
+
+    /**
+     * Gives a light a fixed colour. The Home app tints a light's tile and slider with its hue and saturation, so this is
+     * how a light that is always green (the stars) gets a green slider. Read-only: the lamp has no colour to change.
+     */
+    private fixColour(service: Service, hue: number, saturation: number) {
+        const { Characteristic, Perms } = this.platform.api.hap;
+        for (const [characteristic, value] of [[Characteristic.Hue, hue], [Characteristic.Saturation, saturation]] as const) {
+            const c = service.getCharacteristic(characteristic);
+            c.updateValue(value);
+            c.setProps({ perms: [Perms.PAIRED_READ, Perms.NOTIFY] });
+            c.onGet(() => value);
+        }
     }
 
     private addFan(service: Service, spec: ExtraSpec) {

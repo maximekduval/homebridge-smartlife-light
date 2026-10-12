@@ -192,11 +192,70 @@ async function projector(dps: Record<string, unknown> = PROJECTOR_DPS) {
     const stars = tile(Service.Lightbulb, 'extra-102');
     const nebula = tile(Service.Switch, 'extra-103');
     const rotation = tile(Service.Fanv2, 'extra-101');
+    const all = tile(Service.Switch, 'extra-20');
     const act = (service: any, c: any, value?: any) => (value === undefined
         ? (service.getCharacteristic(c) as any).handleGetRequest()
         : (service.getCharacteristic(c) as any).handleSetRequest(value));
-    return { ...harness, stars, nebula, rotation, act };
+    return { ...harness, stars, nebula, rotation, all, act };
 }
+
+describe('star projector master switch', () => {
+    const settle = () => new Promise((r) => setTimeout(r, 100));
+
+    it('shows "on" only when the lamp is on and the stars, nebula and rotation all are', async () => {
+        const { all, act, connected, fake } = await projector();
+        await connected();
+        expect(await act(all, Characteristic.On)).toBe(true);
+        fake.push({ 102: false });
+        await settle();
+        expect(await act(all, Characteristic.On)).toBe(false);
+        fake.push({ 102: true, 101: 0 });
+        await settle();
+        expect(await act(all, Characteristic.On)).toBe(false); // the rotation is stopped
+        fake.push({ 101: 300 });
+        await settle();
+        expect(await act(all, Characteristic.On)).toBe(true);
+    });
+
+    it('switches everything on with one tap from a partial state, and resumes the rotation', async () => {
+        const { fake, all, act, connected } = await projector({ ...PROJECTOR_DPS, 102: false, 101: 0 });
+        await connected();
+        await act(all, Characteristic.On, true);
+        expect(fake.controls).toEqual([{ 20: true, 102: true, 101: 1000 }]);
+    });
+
+    it('resumes the rotation at the speed it had before it was stopped', async () => {
+        const { fake, all, act, connected } = await projector({ ...PROJECTOR_DPS, 101: 400 });
+        await connected();
+        fake.push({ 101: 0 });
+        await settle();
+        await act(all, Characteristic.On, true);
+        expect(fake.controls[0]).toMatchObject({ 20: true, 101: 400 });
+    });
+
+    it('leaves a running rotation alone', async () => {
+        const { fake, all, act, connected } = await projector({ ...PROJECTOR_DPS, 102: false, 101: 500 });
+        await connected();
+        await act(all, Characteristic.On, true);
+        expect(fake.controls).toEqual([{ 20: true, 102: true }]);
+    });
+
+    it('powers the lamp on and brings everything up from standby', async () => {
+        const { fake, all, act, connected } = await projector({ ...PROJECTOR_DPS, 20: false, 102: false, 103: false, 101: 0 });
+        await connected();
+        await act(all, Characteristic.On, true);
+        expect(fake.controls).toEqual([{ 20: true, 102: true, 103: true, 101: 1000 }]);
+    });
+
+    it('switches everything off by switching the lamp off', async () => {
+        const { fake, all, act, connected } = await projector();
+        await connected();
+        await act(all, Characteristic.On, false);
+        expect(fake.controls).toEqual([{ 20: false }]);
+        await settle();
+        expect(await act(all, Characteristic.On)).toBe(false);
+    });
+});
 
 describe('star projector', () => {
     it('shows the lamp, the stars, the nebula and the rotation as tiles of one accessory', async () => {
@@ -204,6 +263,7 @@ describe('star projector', () => {
         await connected();
         const lights = accessory.services.filter((s) => s.UUID === Service.Lightbulb.UUID);
         expect(lights.map((s) => s.subtype ?? 'main')).toEqual(['main', 'extra-102']);
+        expect(accessory.getServiceById(Service.Switch, 'extra-20')).toBeDefined(); // the master switch
         expect(accessory.getServiceById(Service.Switch, 'extra-103')).toBeDefined();
         expect(accessory.getServiceById(Service.Fanv2, 'extra-101')).toBeDefined();
         expect(accessory.getService(Service.Lightbulb)?.isPrimaryService).toBe(true);
@@ -221,6 +281,15 @@ describe('star projector', () => {
         await connected();
         expect(await act(stars, Characteristic.On)).toBe(true);
         expect(await act(stars, Characteristic.Brightness)).toBe(16); // 161 on a 10..1000 scale
+    });
+
+    it('shows the stars in a fixed green that cannot be changed', async () => {
+        const { stars, act, connected, warnings } = await projector();
+        await connected();
+        expect(await act(stars, Characteristic.Hue)).toBe(120);
+        expect(await act(stars, Characteristic.Saturation)).toBe(100);
+        expect(stars.getCharacteristic(Characteristic.Hue).props.perms).not.toContain('pw');
+        expect(warnings).toEqual([]);
     });
 
     it('turns the stars off and sets their intensity without touching anything else', async () => {

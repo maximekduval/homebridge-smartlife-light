@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- Fixed colour for a `light` extra (`hue`, `saturation`): the Home app tints the tile and the slider with it. The stars of a star projector are always green, so their slider is now green.
+- Master switch: a new `all` type of extra, and an *All* tile for star projectors. It shows "on" only when the lamp and every extra are on, and one tap switches everything on (the rotation resumes at its previous speed) or off. The Home app opens a list instead of toggling when a lamp has several tiles, so there was no one-tap way to switch the whole lamp.
+
 ## 0.2.0
 
 - Extra controls: switches, lights with an intensity and fans (speed) exposed as additional tiles of a lamp, for features that are not plain light. Configurable per light with `extras`.

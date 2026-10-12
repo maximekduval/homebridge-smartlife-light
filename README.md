@@ -81,8 +81,11 @@ Some lamps do more than light: a star projector has a nebula light, stars with t
 | `switch` | a switch                                    | on/off features (nebula, laser, night mode) |
 | `light`  | a light with on/off and an intensity slider | stars                                     |
 | `fan`    | a fan with a speed                          | rotation                                  |
+| `all`    | a master switch                             | switching the whole lamp on or off in one tap |
 
-**Known lamps need nothing.** The **Smart Star Projector** (Tuya product `hi3ejekqmmgajyxz`, sold under several names such as Nebula Glow) gets *Stars*, *Nebula* and *Rotation* automatically, and its main tile controls the colour of the nebula. Turning one of these on also powers the lamp on. Switching the lamp off switches stars and nebula off, and switching it on brings both back: that is the lamp's own behaviour.
+**Known lamps need nothing.** The **Smart Star Projector** (Tuya product `hi3ejekqmmgajyxz`, sold under several names such as Nebula Glow) gets *All*, *Stars*, *Nebula* and *Rotation* automatically, and its main tile controls the colour of the nebula. Turning one of these on also powers the lamp on.
+
+*All* is a master switch. The Home app opens a list instead of toggling when you tap a lamp that has several tiles, so it is the one-tap way to switch everything on or off. It shows "on" only when the lamp, the stars, the nebula and the rotation all are; from any other state one tap switches everything on, the rotation resuming at its previous speed. For another lamp, add `{ "dp": 20, "type": "all" }` (the data point of its main power) to its `extras`. Switching the lamp off switches stars and nebula off, and switching it on brings both back: that is the lamp's own behaviour.
 
 **For any other lamp**, find what its data points do with `smartlife-light watch <light>`: type a label and press Enter after each action you do in the Smart Life app, and the log shows which data point moved. Then declare them:
 
@@ -108,10 +111,11 @@ An entry with the data point number of a known extra only changes what you write
 | Parameter      | Type    | Default        | Note                                                                         |
 |----------------|---------|----------------|------------------------------------------------------------------------------|
 | `dp`           | Integer |                | mandatory, the data point number                                             |
-| `type`         | String  |                | `switch`, `light` or `fan` (mandatory for a new extra)                       |
+| `type`         | String  |                | `switch`, `light`, `fan` or `all` (mandatory for a new extra)                |
 | `name`         | String  | by type        | name in HomeKit                                                              |
 | `brightnessDp` | Integer |                | `light` only: the data point holding the intensity                           |
 | `min`, `max`   | Integer | from the cloud, else 0 and 1000 | range of the intensity or speed; for a `fan`, `min` means stopped |
+| `hue`, `saturation` | Integer | | `light` only: a fixed colour (0-360, 0-100) for the tile and slider in the Home app, for a light that is always one colour. The stars of a star projector are green by default |
 | `powerOn`      | Boolean | false          | switching it on first powers the lamp on                                     |
 | `exclude`      | Boolean | false          | hide it                                                                      |
 

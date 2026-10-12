@@ -90,12 +90,13 @@
                   "type": {
                     "title": "Type",
                     "type": "string",
-                    "description": "Switch: on/off. Light: on/off with an intensity. Fan: a speed.",
+                    "description": "Switch: on/off. Light: on/off with an intensity. Fan: a speed. All: one switch for the whole lamp.",
                     "oneOf": [
                       { "title": "Keep the default", "enum": [""] },
                       { "title": "Switch", "enum": ["switch"] },
                       { "title": "Light (on/off + intensity)", "enum": ["light"] },
-                      { "title": "Fan (speed)", "enum": ["fan"] }
+                      { "title": "Fan (speed)", "enum": ["fan"] },
+                      { "title": "All (master switch, data point = main power)", "enum": ["all"] }
                     ]
                   },
                   "brightnessDp": {
@@ -111,6 +112,20 @@
                   "max": {
                     "title": "Highest value",
                     "type": "integer"
+                  },
+                  "hue": {
+                    "title": "Fixed colour: hue (0-360)",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 360,
+                    "description": "Light only: tints the tile and the slider in the Home app, for a light that is always one colour (120 = green). It cannot be changed from HomeKit."
+                  },
+                  "saturation": {
+                    "title": "Fixed colour: saturation (0-100)",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "default": 100
                   },
                   "powerOn": {
                     "title": "Also switch the lamp on",

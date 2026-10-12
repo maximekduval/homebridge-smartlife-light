@@ -2,15 +2,16 @@
  * Extra controls: features of a lamp that are not plain light bulb features, exposed as additional HomeKit tiles
  * on the same accessory (a star projector has a star switch, a star intensity, a rotation speed...).
  *
- * Each extra is tied to a Tuya data point. They come from two places:
+ * Each extra is tied to a Tuya data point (`all` is a master switch: it is tied to the main power and drives the others).
+ * They come from two places:
  *  - a preset, for products we know (matched on the Tuya product id), so that nothing has to be configured;
  *  - the `extras` list of a light in the configuration, which can rename or hide preset extras and add new ones.
  *    `smartlife-light watch <light>` shows which data point does what.
  */
 import { DpInfo } from './tuya/light';
 
-export type ExtraType = 'switch' | 'light' | 'fan';
-const TYPES: ExtraType[] = ['switch', 'light', 'fan'];
+export type ExtraType = 'switch' | 'light' | 'fan' | 'all';
+const TYPES: ExtraType[] = ['switch', 'light', 'fan', 'all'];
 
 export interface ExtraOverride {
     dp: number;
@@ -23,18 +24,26 @@ export interface ExtraOverride {
     max?: number;
     /** Turning it on also switches the lamp's main power on. */
     powerOn?: boolean;
+    /**
+     * `light` only: a fixed colour (hue 0-360, saturation 0-100) the Home app tints the tile and the slider with,
+     * for a light that is always one colour (green stars). It cannot be changed from HomeKit.
+     */
+    hue?: number;
+    saturation?: number;
     exclude?: boolean;
 }
 
 export interface ExtraSpec {
     type: ExtraType;
     name: string;
-    /** On/off for `switch` and `light`, speed for `fan`. */
+    /** On/off for `switch` and `light`, speed for `fan`, the main power for `all`. */
     dp: number;
     brightnessDp?: number;
     min: number;
     max: number;
     powerOn: boolean;
+    hue?: number;
+    saturation?: number;
 }
 
 export interface Preset {
@@ -52,7 +61,9 @@ const STAR_PROJECTOR: Preset = {
     name: 'Smart Star Projector',
     whiteBrightness: false,
     extras: [
-        { dp: 102, type: 'light', name: 'Stars', brightnessDp: 22, min: 10, max: 1000, powerOn: true },
+        // the Home app opens a list instead of toggling when a lamp has several tiles: a master switch is needed there
+        { dp: 20, type: 'all', name: 'All' },
+        { dp: 102, type: 'light', name: 'Stars', brightnessDp: 22, min: 10, max: 1000, powerOn: true, hue: 120, saturation: 100 },
         { dp: 103, type: 'switch', name: 'Nebula', powerOn: true },
         { dp: 101, type: 'fan', name: 'Rotation', min: 0, max: 1000, powerOn: true },
     ],
@@ -123,14 +134,26 @@ export function resolveExtras(preset: Preset | undefined, overrides: unknown, dp
             min = 0;
             max = 1000;
         }
+        let hue: number | undefined;
+        let saturation: number | undefined;
+        if (type === 'light' && e.hue !== undefined) {
+            if (isNumber(e.hue) && e.hue >= 0 && e.hue <= 360) {
+                hue = e.hue;
+                saturation = isNumber(e.saturation) && e.saturation >= 0 && e.saturation <= 100 ? e.saturation : 100;
+            } else {
+                problems.push(`Extra "${e.name ?? dp}": "hue" must be between 0 and 360; the tile keeps its default colour.`);
+            }
+        }
         extras.push({
             type,
             dp,
-            name: e.name || (type === 'fan' ? `Fan ${dp}` : `Extra ${dp}`),
+            name: e.name || (type === 'fan' ? `Fan ${dp}` : type === 'all' ? 'All' : `Extra ${dp}`),
             brightnessDp: type === 'light' && Number.isInteger(e.brightnessDp) ? e.brightnessDp : undefined,
             min,
             max,
             powerOn: Boolean(e.powerOn),
+            hue,
+            saturation,
         });
     }
     return { extras, problems };

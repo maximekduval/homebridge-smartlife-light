@@ -14,11 +14,12 @@ describe('preset', () => {
         expect(findPreset(undefined)).toBeUndefined();
     });
 
-    it('gives the projector its stars, nebula and rotation', () => {
+    it('gives the projector a master switch, its stars, nebula and rotation', () => {
         const { extras, problems } = resolveExtras(preset, undefined);
         expect(problems).toEqual([]);
         expect(extras).toEqual([
-            { type: 'light', dp: 102, name: 'Stars', brightnessDp: 22, min: 10, max: 1000, powerOn: true },
+            { type: 'all', dp: 20, name: 'All', brightnessDp: undefined, min: 0, max: 1000, powerOn: false },
+            { type: 'light', dp: 102, name: 'Stars', brightnessDp: 22, min: 10, max: 1000, powerOn: true, hue: 120, saturation: 100 },
             { type: 'switch', dp: 103, name: 'Nebula', brightnessDp: undefined, min: 0, max: 1000, powerOn: true },
             { type: 'fan', dp: 101, name: 'Rotation', brightnessDp: undefined, min: 0, max: 1000, powerOn: true },
         ]);
@@ -38,7 +39,17 @@ describe('resolveExtras', () => {
 
     it('hides an extra', () => {
         const { extras } = resolveExtras(preset, [{ dp: 103, exclude: true }]);
-        expect(extras.map((e) => e.dp)).toEqual([102, 101]);
+        expect(extras.map((e) => e.dp)).toEqual([20, 102, 101]);
+    });
+
+    it('lets the user rename or hide the master switch like any other extra', () => {
+        expect(resolveExtras(preset, [{ dp: 20, name: 'Tout' }]).extras[0]).toMatchObject({ type: 'all', name: 'Tout' });
+        expect(resolveExtras(preset, [{ dp: 20, exclude: true }]).extras.map((e) => e.dp)).toEqual([102, 103, 101]);
+    });
+
+    it('adds a master switch to a lamp without preset', () => {
+        const { extras } = resolveExtras(undefined, [{ dp: 20, type: 'all' }, { dp: 104, type: 'switch', name: 'Night' }]);
+        expect(extras.map((e) => `${e.type}:${e.name}`)).toEqual(['all:All', 'switch:Night']);
     });
 
     it('adds an extra to a light that has no preset', () => {
@@ -71,7 +82,7 @@ describe('resolveLights with a known product', () => {
     it('applies the preset without any configuration', () => {
         const { lights } = resolveLights([lamp()]);
         expect(lights[0].whiteBrightness).toBe(false);
-        expect(lights[0].extras.map((e) => e.name)).toEqual(['Stars', 'Nebula', 'Rotation']);
+        expect(lights[0].extras.map((e) => e.name)).toEqual(['All', 'Stars', 'Nebula', 'Rotation']);
     });
 
     it('leaves ordinary lights alone', () => {
@@ -84,5 +95,22 @@ describe('resolveLights with a known product', () => {
         const { lights, problems } = resolveLights([lamp()], [{ id: 'a1', extras: [{ dp: 102, name: 'Étoiles' }, { dp: 9, type: 'nope' }] as any }]);
         expect(lights[0].extras.find((e) => e.dp === 102)?.name).toBe('Étoiles');
         expect(problems).toEqual([expect.stringMatching(/^Nebula Glow: Extra on data point 9/)]);
+    });
+});
+
+describe('fixed colour of a light', () => {
+    it('gives the stars of the projector a green tile', () => {
+        expect(resolveExtras(preset, undefined).extras.find((e) => e.dp === 102)).toMatchObject({ hue: 120, saturation: 100 });
+    });
+
+    it('can be changed or kept by the user', () => {
+        expect(resolveExtras(preset, [{ dp: 102, hue: 200, saturation: 40 }]).extras.find((e) => e.dp === 102)).toMatchObject({ hue: 200, saturation: 40 });
+        expect(resolveExtras(preset, [{ dp: 102, hue: 200 }]).extras.find((e) => e.dp === 102)).toMatchObject({ hue: 200, saturation: 100 });
+    });
+
+    it('applies to lights only, and rejects an impossible hue', () => {
+        const { extras, problems } = resolveExtras(undefined, [{ dp: 5, type: 'switch', hue: 120 }, { dp: 6, type: 'light', hue: 500 }]);
+        expect(extras.map((e) => e.hue)).toEqual([undefined, undefined]);
+        expect(problems).toEqual([expect.stringMatching(/"hue" must be between 0 and 360/)]);
     });
 });
